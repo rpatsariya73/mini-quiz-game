@@ -1,0 +1,308 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Mini Quiz Game (Single File)</title>
+  <style>
+    :root{--bg:#0f172a;--card:#0b1220;--accent:#d4ae06;--muted:#94a3b8;--glass: rgba(255,255,255,0.03)}
+    html,body{height:100%;margin:0;font-family:Inter,Segoe UI,Arial;background:linear-gradient(180deg,#071029 0%, #042038 100%);color:#e6eef6}
+    .wrap{max-width:900px;margin:36px auto;padding:24px}
+    .card{background:var(--card);border-radius:12px;padding:18px;box-shadow:0 6px 28px rgba(2,6,23,0.6)}
+    h1{margin:0 0 8px;font-size:20px}
+    label{display:block;margin:10px 0 6px;color:var(--muted);font-size:13px}
+    input[type=text], input[type=password], select{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);background:transparent;color:inherit}
+    button{background:var(--accent);border:none;padding:10px 14px;border-radius:9px;color:#042038;font-weight:600;cursor:pointer}
+    .row{display:flex;gap:12px}
+    .row > *{flex:1}
+    .center{text-align:center}
+    .muted{color:var(--muted);font-size:13px}
+    .question{margin:12px 0;padding:12px;border-radius:8px;background:var(--glass)}
+    .option{display:block;padding:10px;margin:8px 0;border-radius:8px;border:1px solid rgba(255,255,255,0.03);cursor:pointer}
+    .option:hover{transform:translateY(-2px)}
+    .correct{outline:2px solid #10b981}
+    .wrong{outline:2px solid #ef4444}
+    .small{font-size:13px}
+    .topline{display:flex;justify-content:space-between;align-items:center}
+    table{width:100%;border-collapse:collapse}
+    td,th{padding:8px;text-align:left;border-bottom:1px solid rgba(255,255,255,0.03)}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card" id="loginCard">
+      <div class="topline">
+        <h1>Quiz Game — Login</h1>
+        <div class="muted">Data stored locally in your browser (localStorage)</div>
+      </div>
+
+      <label>Username</label>
+      <input id="username" type="text" placeholder="pick a username (no spaces)" />
+      <label>Password</label>
+      <input id="password" type="password" placeholder="choose a password" />
+
+      <div style="margin-top:12px" class="row">
+        <button id="loginBtn">Login / Create</button>
+        <button id="guestBtn">Continue as Guest</button>
+      </div>
+      <div class="muted small" style="margin-top:12px">If username doesn't exist it will be created. Progress and best score saved per username.</div>
+    </div>
+
+    <div class="card" id="quizCard" style="display:none;margin-top:18px">
+      <div class="topline">
+        <h1 id="welcome">Welcome</h1>
+        <div class="muted" id="progressText"></div>
+      </div>
+
+      <div id="setup">
+        <label>How many questions would you like to attempt?</label>
+        <select id="numQ"></select>
+        <div style="margin-top:12px" class="row">
+          <button id="startBtn">Start Quiz</button>
+          <button id="logoutBtn">Logout</button>
+        </div>
+      </div>
+
+      <div id="questionArea" style="display:none">
+        <div class="question">
+          <div id="qNumber" class="muted small"></div>
+          <div id="qText" style="font-weight:600;margin-top:8px"></div>
+        </div>
+        <div id="options"></div>
+        <div style="margin-top:12px" class="row">
+          <button id="nextBtn" style="display:none">Next</button>
+          <div style="flex:1"></div>
+          <button id="finishBtn">Finish Session</button>
+        </div>
+      </div>
+
+      <div id="resultArea" style="display:none;margin-top:12px">
+        <h2>Session Summary</h2>
+        <div id="sessionSummary" class="muted"></div>
+      </div>
+
+      <div id="leaderboardArea" style="display:none;margin-top:12px">
+        <h2>Leaderboard</h2>
+        <div id="leaderboardList"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // QUESTIONS - put your questions here
+    const QUESTIONS = [
+      {text: "What is the capital of France?", opts: ["Paris","London","Berlin","Rome"], answer:0},
+      {text: "Which planet is known as the Red Planet?", opts:["Venus","Mars","Jupiter","Saturn"], answer:1},
+      {text: "Who wrote 'Hamlet'?", opts:["Charles Dickens","Leo Tolstoy","William Shakespeare","Mark Twain"], answer:2},
+      {text: "What is the largest mammal?", opts:["Elephant","Blue Whale","Giraffe","Shark"], answer:1},
+      {text: "Which gas do plants absorb from the atmosphere?", opts:["Oxygen","Nitrogen","Carbon Dioxide","Helium"], answer:2},
+      {text: "Who painted the Mona Lisa?", opts:["Vincent Van Gogh","Pablo Picasso","Leonardo da Vinci","Claude Monet"], answer:2},
+      {text: "What is the square root of 64?", opts:["6","7","8","9"], answer:2},
+      {text: "Which continent is the Sahara Desert located on?", opts:["Asia","South America","Africa","Australia"], answer:2},
+      {text: "Which element has the chemical symbol 'O'?", opts:["Gold","Oxygen","Osmium","Oxide"], answer:1},
+      {text: "In which year did World War II end?", opts:["1940","1942","1945","1950"], answer:2}
+    ];
+
+    // --- storage helpers ---
+    const STORAGE_KEY = 'quiz_users_v1';
+
+    function loadUsers(){
+      try{const raw = localStorage.getItem(STORAGE_KEY); return raw?JSON.parse(raw):{};}catch(e){return {}}}
+    function saveUsers(users){localStorage.setItem(STORAGE_KEY, JSON.stringify(users));}
+
+    // --- app state ---
+    let currentUser = null; 
+    let sessionIndices = [];
+    let sessionNum = 0;
+    let sessionScore = 0;
+    let currentIndexInSession = 0;
+
+    // --- UI refs ---
+    const loginCard = document.getElementById('loginCard');
+    const quizCard = document.getElementById('quizCard');
+    const usernameEl = document.getElementById('username');
+    const passwordEl = document.getElementById('password');
+    const loginBtn = document.getElementById('loginBtn');
+    const guestBtn = document.getElementById('guestBtn');
+    const welcomeEl = document.getElementById('welcome');
+    const progressText = document.getElementById('progressText');
+    const numQ = document.getElementById('numQ');
+    const startBtn = document.getElementById('startBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const questionArea = document.getElementById('questionArea');
+    const qNumber = document.getElementById('qNumber');
+    const qText = document.getElementById('qText');
+    const optionsEl = document.getElementById('options');
+    const nextBtn = document.getElementById('nextBtn');
+    const finishBtn = document.getElementById('finishBtn');
+    const resultArea = document.getElementById('resultArea');
+    const sessionSummary = document.getElementById('sessionSummary');
+    const leaderboardArea = document.getElementById('leaderboardArea');
+    const leaderboardList = document.getElementById('leaderboardList');
+
+    // --- helpers ---
+    function shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a}
+
+    function showLogin(){loginCard.style.display='block';quizCard.style.display='none';}
+    function showQuiz(){loginCard.style.display='none';quizCard.style.display='block';}
+
+    function openSessionSetup(){
+      document.getElementById('setup').style.display='block';
+      questionArea.style.display='none';
+      resultArea.style.display='none';
+      leaderboardArea.style.display='none';
+    }
+
+    // --- user actions ---
+    loginBtn.addEventListener('click', ()=>{
+      let u = usernameEl.value.trim();
+      let p = passwordEl.value;
+      if(!u){alert('Please enter a username (no spaces).'); return;}
+      if(u.includes(' ')){alert('Username may not contain spaces.'); return;}
+      const users = loadUsers();
+      if(users[u]){
+        // exists: check password
+        if(users[u].password !== p){alert('Wrong password for this user.'); return;}
+        currentUser = users[u];
+        currentUser.username = u;
+      } else {
+        // create
+        currentUser = {username:u,password:p||'',progress:0,bestScore:0,answered:[]};
+        users[u]=currentUser; saveUsers(users);
+        alert('New account created: '+u);
+      }
+      enterQuiz();
+    });
+
+    guestBtn.addEventListener('click', ()=>{
+      // create temporary guest user with timestamp
+      const id = 'guest_' + Date.now();
+      currentUser = {username:id,password:'',progress:0,bestScore:0,answered:[]};
+      enterQuiz();
+    });
+
+    logoutBtn.addEventListener('click', ()=>{currentUser=null;showLogin();});
+
+    function enterQuiz(){
+      showQuiz();
+      welcomeEl.textContent = 'Hello, ' + currentUser.username;
+      // ensure user object has answered array
+      if(!Array.isArray(currentUser.answered)) currentUser.answered = [];
+      // reset progress if done
+      if(currentUser.progress >= QUESTIONS.length){
+        alert('You have completed all questions. Progress will be reset so you can play again.');
+        currentUser.progress = 0; currentUser.answered = [];
+        const users = loadUsers(); if(users[currentUser.username]){users[currentUser.username].progress=0;users[currentUser.username].answered=[];saveUsers(users);} 
+      }
+      updateProgressText();
+      populateNumSelect();
+      openSessionSetup();
+    }
+
+    function updateProgressText(){
+      progressText.textContent = `Progress: ${currentUser.progress}/${QUESTIONS.length} — Best score: ${currentUser.bestScore}`;
+    }
+
+    function populateNumSelect(){
+      const remaining = QUESTIONS.length - currentUser.progress;
+      numQ.innerHTML = '';
+      for(let i=1;i<=remaining;i++){
+        const opt = document.createElement('option'); opt.value=i; opt.textContent = i; numQ.appendChild(opt);
+      }
+    }
+
+    startBtn.addEventListener('click', ()=>{
+      sessionNum = parseInt(numQ.value,10);
+      // build sessionIndices from remaining questions (skip answered indices stored in answered array)
+      const answeredSet = new Set(currentUser.answered || []);
+      const remainingIdx = [];
+      for(let i=0;i<QUESTIONS.length;i++) if(!answeredSet.has(i)) remainingIdx.push(i);
+      shuffle(remainingIdx);
+      sessionIndices = remainingIdx.slice(0, sessionNum);
+      sessionScore = 0; currentIndexInSession = 0;
+      document.getElementById('setup').style.display='none';
+      showQuestion();
+    });
+
+    function showQuestion(){
+      if(currentIndexInSession >= sessionIndices.length){
+        finishSession(); return;
+      }
+      questionArea.style.display='block'; resultArea.style.display='none'; leaderboardArea.style.display='none';
+      nextBtn.style.display='none';
+      const qIdx = sessionIndices[currentIndexInSession];
+      const q = QUESTIONS[qIdx];
+      qNumber.textContent = `Question ${currentUser.progress + currentIndexInSession + 1} of ${QUESTIONS.length}`;
+      qText.textContent = q.text;
+      optionsEl.innerHTML = '';
+      q.opts.forEach((o, idx)=>{
+        const b = document.createElement('div'); b.className='option'; b.textContent = (idx+1)+'. '+o; b.dataset.idx = idx;
+        b.addEventListener('click', ()=>selectOption(b, idx, qIdx));
+        optionsEl.appendChild(b);
+      });
+    }
+
+    function selectOption(button, optIdx, qIdx){
+      // disable all options
+      Array.from(optionsEl.children).forEach(ch=>ch.style.pointerEvents='none');
+      const correctIdx = QUESTIONS[qIdx].answer;
+      if(optIdx === correctIdx){
+        button.classList.add('correct'); sessionScore++;
+      } else {
+        button.classList.add('wrong');
+        // highlight correct
+        Array.from(optionsEl.children).forEach(ch=>{ if(parseInt(ch.dataset.idx,10)===correctIdx) ch.classList.add('correct'); });
+      }
+      // mark this question as answered permanently
+      if(!currentUser.answered) currentUser.answered = [];
+      if(!currentUser.answered.includes(qIdx)) currentUser.answered.push(qIdx);
+
+      // show next
+      nextBtn.style.display='inline-block';
+      nextBtn.onclick = ()=>{ currentIndexInSession++; showQuestion(); };
+    }
+
+    finishBtn.addEventListener('click', finishSession);
+
+    function finishSession(){
+      // update user progress = number of answered questions
+      const uniqueAnswered = Array.from(new Set(currentUser.answered || []));
+      currentUser.progress = uniqueAnswered.length;
+      currentUser.bestScore = Math.max(currentUser.bestScore||0, sessionScore);
+      // persist if not a guest
+      const users = loadUsers();
+      if(users[currentUser.username]){
+        users[currentUser.username].progress = currentUser.progress;
+        users[currentUser.username].bestScore = currentUser.bestScore;
+        users[currentUser.username].answered = uniqueAnswered;
+        saveUsers(users);
+      } else {
+        // guests
+      }
+
+      // show results 
+      questionArea.style.display='none';
+      resultArea.style.display='block';
+      leaderboardArea.style.display='block';
+      sessionSummary.textContent = `You scored ${sessionScore} / ${sessionIndices.length} this session.`;
+      updateProgressText();
+      renderLeaderboard();
+    }
+
+    function renderLeaderboard(){
+      const users = loadUsers();
+      const arr = Object.keys(users).map(k=>({username:k,best:users[k].bestScore||0}));
+      arr.sort((a,b)=>b.best - a.best);
+      // show top 10 (or all if fewer)
+      const top = arr.slice(0,10);
+      let html = '<table><tr><th>#</th><th>User</th><th>Best Score</th></tr>';
+      top.forEach((u,i)=>{html += `<tr><td>${i+1}</td><td>${u.username}</td><td>${u.best}</td></tr>`});
+      html += '</table>';
+      leaderboardList.innerHTML = html;
+    }
+
+    // initialize
+    showLogin();
+  </script>
+</body>
+</html>
